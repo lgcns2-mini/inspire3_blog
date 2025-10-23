@@ -1,0 +1,17 @@
+package com.lgcns.inspire_blog.todo.domain.dto.request;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class TodoListCreateRequestDTO {
+    private Long userId;
+    private String content;
+}
