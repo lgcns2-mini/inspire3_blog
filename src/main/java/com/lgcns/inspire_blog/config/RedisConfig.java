@@ -59,7 +59,7 @@ public class RedisConfig {
         }
 
         @PreDestroy
-        public void stopRedis() {
+        public void stopRedis() throws IOException {
             if (redisServer != null) {
                 redisServer.stop();
                 System.out.println("🛑 Embedded Redis stopped");
