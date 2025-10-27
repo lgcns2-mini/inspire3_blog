@@ -2,8 +2,10 @@ package com.lgcns.inspire_blog.config;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -17,13 +19,18 @@ import java.io.IOException;
 @Configuration
 public class RedisConfig {
 
-    private RedisServer redisServer;
-    private int redisPort;
+    @Bean
+    @Profile({"local"})
+    public RedisConnectionFactory localRedisConnectionFactory() {
+        return new LettuceConnectionFactory("localhost", 6379);
+    }
 
     @Bean
-    public RedisConnectionFactory redisConnectionFactory() {
-        // 외부 Redis 연결 (기본 6379)
-        return new LettuceConnectionFactory("localhost", 6379);
+    @Profile({"prod", "docker"})
+    public RedisConnectionFactory prodRedisConnectionFactory(
+            @Value("${spring.data.redis.host}") String host,
+            @Value("${spring.data.redis.port}") int port) {
+        return new LettuceConnectionFactory(host, port);
     }
 
     @Bean
@@ -35,27 +42,27 @@ public class RedisConfig {
         return template;
     }
 
-    @PostConstruct
-    public void startRedis() throws Exception {
-        String embeddedEnabled = System.getenv("EMBEDDED_REDIS_ENABLED");
-        if (embeddedEnabled != null && embeddedEnabled.equalsIgnoreCase("false")) {
-            System.out.println("🚫 Embedded Redis disabled. Using external Redis instead.");
-            return;
+    /**
+     * ✅ 로컬 개발환경에서만 embedded-redis 실행
+     */
+    @Profile("local")
+    @Configuration
+    static class EmbeddedRedisServer {
+
+        private RedisServer redisServer;
+
+        @PostConstruct
+        public void startRedis() throws IOException {
+            redisServer = new RedisServer(6379);
+            redisServer.start();
+            System.out.println("✅ Embedded Redis started on port 6379");
         }
 
-        redisPort = PortUtils.findAvailableTcpPort();
-        System.out.println("[debug] >>>> redis port " + redisPort);
-        redisServer = new RedisServer(redisPort);
-        redisServer.start();
-    }
-
-    @PreDestroy
-    public void stopRedis() {
-        if (redisServer != null) {
-            try {
+        @PreDestroy
+        public void stopRedis() {
+            if (redisServer != null) {
                 redisServer.stop();
-            } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println("🛑 Embedded Redis stopped");
             }
         }
     }
