@@ -1,0 +1,66 @@
+name: Docker CI/CD
+
+on:
+  push:
+    branches: [ dev ]     # 필요에 따라 [dev, stg, main]
+  workflow_dispatch: {}
+
+jobs:
+  build_push_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '17'
+
+      - name: Build jar
+        run: ./gradlew clean bootJar -x test
+
+      - name: Set image meta
+        id: meta
+        run: |
+          echo "IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/inspire3-blog-svc" >> $GITHUB_OUTPUT
+          echo "TAG=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push
+        run: |
+          docker build -t ${{ steps.meta.outputs.IMAGE }}:latest \
+                       -t ${{ steps.meta.outputs.IMAGE }}:${{ steps.meta.outputs.TAG }} .
+          docker push ${{ steps.meta.outputs.IMAGE }}:latest
+          docker push ${{ steps.meta.outputs.IMAGE }}:${{ steps.meta.outputs.TAG }}
+
+      - name: Deploy on EC2 (compose pull & up)
+        uses: appleboy/ssh-action@v1.0.1
+        with:
+          host: ${{ secrets.AWS_EC2_HOST }}
+          username: ${{ secrets.AWS_EC2_USER }}
+          key: ${{ secrets.AWS_EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/ubuntu/code/dcompose/compose/spring_lb_ng_scg_eureka
+
+            # .env의 태그를 새 커밋으로 교체
+            sed -i "s/^USER_TAG=.*/USER_TAG=${{ steps.meta.outputs.TAG }}/" .env
+            # (이미지 이름 고정이 아니라면 USER_IMAGE도 여기서 sed 가능)
+
+            docker compose pull inspire3-blog-svc
+            docker compose up -d inspire3-blog-svc
+
+            # 간단 헬스체크 (host 네트워크 사용 가정)
+            sleep 3
+            curl -fsS http://localhost:9001/ || (docker compose logs --tail=200 sc-user-svc && exit 1)
